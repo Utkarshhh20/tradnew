@@ -8,13 +8,16 @@ import pandas_datareader as pdr
 import mplfinance as fplt
 import backtrader as bt 
 import matplotlib.pyplot as plt
+import talib
 import matplotlib
 import requests
 import tweepy
 import plotly.graph_objs as go
 from rsi import RSIStrategy
+from pandas.tseries.offsets import BDay
 from urllib.request import urlopen, Request
 from bs4 import BeautifulSoup as bs
+from streamlit_option_menu import option_menu
 from string import Template
 from datetime import date, timedelta
 from yahoo_fin import stock_info as si 
@@ -30,97 +33,21 @@ import copy
 from datetime import datetime
 from io import BytesIO
 from yahooquery import Screener
-import streamlit.components.v1 as components
-import nltk
-nltk.download("vader_lexicon")
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from bollingerband import BOLLStrat
-import os
-import sys
-import subprocess
-import re
-
-# check if the library folder already exists, to avoid building everytime you load the pahe
-if not os.path.isdir("/tmp/ta-lib"):
-
-    # Download ta-lib to disk
-    with open("/tmp/ta-lib-0.4.0-src.tar.gz", "wb") as file:
-        response = requests.get(
-            "http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz"
-        )
-        file.write(response.content)
-    # get our current dir, to configure it back again. Just house keeping
-    default_cwd = os.getcwd()
-    os.chdir("/tmp")
-    # untar
-    os.system("tar -zxvf ta-lib-0.4.0-src.tar.gz")
-    os.chdir("/tmp/ta-lib")
-    os.system("ls -la /app/equity/")
-    # build
-    os.system("./configure --prefix=/home/appuser")
-    os.system("make")
-    # install
-    os.system("make install")
-    # back to the cwd
-    os.chdir(default_cwd)
-    sys.stdout.flush()
-
-# add the library to our current environment
-from ctypes import *
-
-lib = CDLL("/home/appuser/lib/libta_lib.so.0.0.0")
- import library
-try:
-    import talib
-
-#except ImportError:
-#    subprocess.check_call([sys.executable, "-m", "pip", "install", "--global-option=build_ext", "--global-option=-L/home/appuser/lib/", "--global-option=-I/home/appuser/include/", "ta-lib"])
-#finally:
-#    import talib
-analytics='''
-<!-- Default Statcounter code for Tradelyne
-https://tradelyne.herokuapp.com -->
-<script type="text/javascript">
-var sc_project=12785026; 
-var sc_invisible=1; 
-var sc_security="652ee28e"; 
-</script>
-<script type="text/javascript"
-src="https://www.statcounter.com/counter/counter.js"
-async></script>
-<noscript><div class="statcounter"><a title="Web Analytics"
-href="https://statcounter.com/" target="_blank"><img
-class="statcounter"
-src="https://c.statcounter.com/12785026/0/652ee28e/1/"
-alt="Web Analytics"
-referrerPolicy="no-referrer-when-downgrade"></a></div></noscript>
-<!-- End of Statcounter Code -->
-'''
+from goldencrossover import goldencrossover
 st.set_page_config(page_title='Tradelyne', page_icon='📈', layout="wide",initial_sidebar_state='collapsed')
-components.html(analytics, height=2, width=2)
-st.markdown('<style>div.block-container{padding-left:0rem;}</style>', unsafe_allow_html=True)
-st.markdown("""
-        <style>
-	       .appview-container .main .block-container {
-	            padding-top: 0rem;
-                    padding-bottom: 0rem;
-                    padding-left: 0rem;
-                    padding-right: 3rem;
-		    }
-               .css-18e3th9 {
-                    padding-top: 0rem;
-                    padding-bottom: 10rem;
-                    padding-left: 0rem;
-                    padding-right: 5rem;
-                }
-               .css-1d391kg {
-                    padding-top: 3.5rem;
-                    padding-right: 1rem;
-                    padding-bottom: 3.5rem;
-                    padding-left: 1rem;
-                }
-        </style>
-        """, unsafe_allow_html=True)
+#st.markdown(""" <style> 
+#                .css-18e3th9 {  padding-top: 0rem; 
+#                                padding-bottom: 10rem; 
+#                                padding-left: 0rem; 
+#                                padding-right: 0rem; } 
+#                .css-1d391kg {  padding-top: 3.5rem; 
+#                                padding-right: 1rem; 
+#                                padding-bottom: 3.5rem; 
+#                                padding-left: 1rem; } 
+#                </style> """, 
+#               unsafe_allow_html=True)
 today=date.today()
 oneyr= today - timedelta(days=365)
 count=1
@@ -168,6 +95,7 @@ def parse_news(news_table):
     return parsed_news_df
         
 def score_news(parsed_news_df):
+    # Instantiate the sentiment intensity analyzer
     vader = SentimentIntensityAnalyzer()
     
     # Iterate through the headlines and get the polarity scores using vader
@@ -261,6 +189,17 @@ def get_insider():
 
     except Exception as e:
         return e
+
+def get_rating(ticker):
+    url = finviz_url + ticker
+    req = Request(url=url,headers={'User-Agent': 'Mozilla/5.0'}) 
+    response = urlopen(req)    
+    # Read the contents of the file into 'html'
+    html = bs(response)
+    # Find 'news-table' in the Soup and load it into 'news_table'
+    rating = pd.read_html(str(html), attrs = {'class': 'fullview-ratings-outer'})
+    return rating
+
 def backtestrsi(ticker, start, end, cash):
     global strategy
     cash=int(cash)
@@ -308,6 +247,7 @@ def backtestrsi(ticker, start, end, cash):
     annual_return=str(round(annual_return,2))
     figure = cerebro.plot(style='line')[0][0]
     graph, blank, info=st.columns([2,0.2, 1])
+    print(stratdd[0].analyzers.dd.get_analysis())
     with graph:
         st.pyplot(figure)
     with blank: 
@@ -323,7 +263,40 @@ def backtestrsi(ticker, start, end, cash):
                 #for i in x:
                 #    tra=tra+(i.upper(), ':', x[i])
                 #    st.write(tra)
+        print(trade)
         #st.write(trade)
+        if int(start_value)<=int(final_value):
+            fig = go.Figure(go.Indicator(
+            mode = "gauge+number+delta",
+            value = final_value,
+            domain = {'x': [0, 1], 'y': [0, 1]},
+            title = {'text': "Strategy returns"},
+            delta = {'reference': start_value, 'increasing': {'color': "royalblue"}},
+            gauge={'axis': {'range': [None, final_value*6/5], 'tickwidth': 1, 'tickcolor': "green"},
+                'bar': {'color': "green"},
+                'steps': [
+                    {'range': [0, start_value], 'color': '#D3D3D3'},
+                    {'range': [start_value, final_value], 'color': 'royalblue'}],}
+            ))
+            fig.update_layout(paper_bgcolor = "white", font = {'color': "black", 'family': "Arial"}, width=500, height=500,)
+            #st.plotly_chart(fig, width=5)
+        else:
+            fig = go.Figure(go.Indicator(
+            mode = "gauge+number+delta",
+            value = final_value,
+            domain = {'x': [0, 1], 'y': [0, 1]},
+            title = {'text': "Strategy returns"},
+            delta = {'reference': start_value, 'decreasing': {'color': "black"}},
+            gauge={'axis': {'range': [None, start_value*6/5], 'tickwidth': 1, 'tickcolor': "red"},
+                'bar': {'color': "red"},
+                'steps': [
+                    {'range': [0, start_value], 'color': 'white'},
+                    {'range': [final_value, start_value], 'color': '#D3D3D3'}],}
+            ))
+            fig.update_layout(paper_bgcolor = "white", font = {'color': "black", 'family': "Arial"}, width=500, height=500)
+            #st.plotly_chart(fig)
+        #st.subheader('Total returns: ', f"{returns}")
+        #st.subheader('Annual returns: ', f"{annual_return}")
         st.subheader(f"{ticker}'s total returns are {returns}% with a {annual_return}% APY")
         st.subheader(f'Initial investment: {cash}')
         st.subheader(f'Final investment value: {final_value}')
@@ -344,38 +317,34 @@ def backtestrsi(ticker, start, end, cash):
             drawdown=f"{drawdown} {i} : {max[i]}  |    "
         print(drawdown)
         st.subheader(drawdown)
-#        st.subheader('Trade Details')
-#        for i in trade:
-#            if i=='total' or i=='pnl' or i=='streak' or i=='lost' or i=='won':
-#                if i=='pnl':
-#                    pass
-#                    for j in i:
-#                        pass
-#                x=str(trade[i])
-#                for k in "[]()''":
-#                    x=x.replace(k, '')
-#                x=x.replace('AutoOrderedDict', '')
-#                st.write(i,x)
-#    st.write('')
-#    st.subheader(f"{ticker}'s total returns are {returns}% with a {annual_return}% APY")
+        st.subheader('Trade Details')
+        for i in trade:
+            if i=='total' or i=='pnl' or i=='streak' or i=='lost' or i=='won':
+                if i=='pnl':
+                    pass
+                    for j in i:
+                        pass
+                x=str(trade[i])
+                for k in "[]()''":
+                    x=x.replace(k, '')
+                x=x.replace('AutoOrderedDict', '')
+                st.write(i,x)
+    st.write('')
+    st.subheader(f"{ticker}'s total returns are {returns}% with a {annual_return}% APY")
     #final_value=round(returns, 2)
-#    st.write(f'Initial investment: {cash}')
-#    st.write(f'Final money: {final_value}')
-#    st.write(stratdd[0].analyzers.sr.get_analysis())
+    st.write(f'Initial investment: {cash}')
+    st.write(f'Final money: {final_value}')
+    st.write(stratdd[0].analyzers.sr.get_analysis())
     #st.write(stats)
     strategy=''
-def volatility():
+def volatility(ticker, start, end, cash):
     global strategy
-    from VIXStrategy import VIXStrategy
     import os
-    tickers=st.text_input("Stock ticker", value="AAPL")
-    starts=st.text_input("Start date", value="2018-01-31")
-    ends=st.text_input("End date", value=today)
-    cashs=st.text_input("Starting cash", value=10000)
-    cashs=int(cashs)
+    from VIXStrategy import VIXStrategy
+    cash=int(cash)
     cerebro = bt.Cerebro()
-    cerebro.broker.setcash(cashs)
-    start_value=cashs
+    cerebro.broker.setcash(cash)
+    start_value=cash
     class SPYVIXData(bt.feeds.GenericCSVData):
         lines = ('vixopen', 'vixhigh', 'vixlow', 'vixclose',)
 
@@ -405,50 +374,54 @@ def volatility():
             ('volume', -1),
             ('openinterest', -1)
         )
-   
-    df = yf.download(tickers=tickers, start=starts, end=ends, rounding= False)
+    df = yf.download(tickers=ticker, start=start, end=end, rounding= False)
+    ticker=ticker
     df=df.reset_index() 
-    df2 = yf.download(tickers='^VIX', start=starts, end=ends, rounding= False)
+    df2 = yf.download(tickers='^VIX', start=start, end=end, rounding= False)
     df2.rename(columns = {'Open':'Vix Open', 'High':'Vix High', 'Low':'Vix Low', 'Close':'Vix Close'}, inplace = True)
     df2=df2.drop("Volume", axis=1)
     df2=df2.drop("Adj Close", axis=1)
     df2=df2.reset_index()
     df3=df2
+    df3.to_csv(r'C:\Users\Utki\Desktop\code\stock\trial.csv')
     df2=df2.drop("Date", axis=1)
     result=pd.concat([df, df2], axis=1, join='inner')
-    results=result
-    df3.to_csv(r'https://github.com/Utkarshhh20/trial/blob/main/trial.csv')
-    results.to_csv(r'https://github.com/Utkarshhh20/trial/blob/main/trial2.csv')
-    first_column1 = results.columns[0]
-    results.to_csv('trial2.csv', index=False)
-    #results = pd.read_csv('trial2.csv')
+    result.to_csv(r'C:\Users\Utki\Desktop\code\stock\trial2.csv')
+    result = pd.read_csv('trial2.csv')
     # If you know the name of the column skip this
+    first_column = result.columns[0]
     # Delete first
-    #result = result.drop([first_column], axis=1)
+    result = result.drop([first_column], axis=1)
+    #result = result.iloc[: , 1:]
+    result.to_csv('trial2.csv', index=False)
     # If you know the name of the column skip this
-    first_column2 = df3.columns[0]
+    first_column = df3.columns[0]
     # Delete first
     df3.to_csv('trial.csv', index=False)
+    print(result)
+    print(df3)
     st.dataframe(result)
     st.dataframe(df3)
     csv_file = os.path.dirname(os.path.realpath(__file__)) + "/trial2.csv"
     vix_csv_file = os.path.dirname(os.path.realpath(__file__)) + "/trial.csv"
 
-    spyVixDataFeed = SPYVIXData(dataname=csv_file)
-    vixDataFeed = VIXData(dataname=vix_csv_file)
-    starts=starts.split("-")
-    ends=ends.split("-")
-    for i in range(len(starts)):
-        starts[i]=int(starts[i])
-    for j in range(len(ends)):
-        ends[j]=int(ends[j])
-    year=ends[0]-starts[0]
-    month=ends[1]-starts[1]
-    day=ends[2]-starts[2]
+    #spyVixDataFeed = SPYVIXData(dataname=csv_file)
+    #vixDataFeed = VIXData(dataname=vix_csv_file)
+    start=str(start).split("-")
+    end=str(end).split("-")
+    for i in range(len(start)):
+        start[i]=int(start[i])
+    for j in range(len(end)):
+        end[j]=int(end[j])
+    year=end[0]-start[0]
+    month=end[1]-start[1]
+    day=end[2]-start[2]
     totalyear=year+(month/12)+(day/365)
     matplotlib.use('Agg')
-    cerebro.adddata(spyVixDataFeed)
-    cerebro.adddata(vixDataFeed)
+    resultss=bt.feeds.PandasData(result)
+    df3=bt.feeds.PandasData(df3)
+    cerebro.adddata(resultss)
+    cerebro.adddata(df3)
 
     cerebro.addstrategy(VIXStrategy)
 
@@ -464,13 +437,23 @@ def volatility():
     returns=str(returns)
     annual_return=str(annual_return)
     figure = cerebro.plot(volume=False)[0][0]
-    st.pyplot(figure)
-    st.subheader(f"{ticker}'s total returns are {returns}% with a {annual_return}% APY")
+    graph, blank, info = st.columns([2,0.2,1])
+    with graph:
+        st.pyplot(figure)
+    with blank:
+        st.write(' ')
+    with info:
+        st.header(strategy)
+        st.write(' ')
+        st.write(' ')
+        st.subheader(f"{ticker}'s total returns are {returns}% with a {annual_return}% APY")
     strategy=''
-	
+
 def backtestgolden(ticker, start, end, cash):
-    from goldencrossover import goldencrossover
-    global strategy 
+    global strategy
+    start=start-BDay(200)
+    start=start.date()
+    st.write(start)
     cash=int(cash)
     cerebro=bt.Cerebro()
     cerebro.broker.set_cash(cash)
@@ -490,23 +473,14 @@ def backtestgolden(ticker, start, end, cash):
     cerebro.adddata(data)
 
     cerebro.addstrategy(goldencrossover)
-    cerebro.addanalyzer(bt.analyzers.PyFolio ,_name='pf')
-    cerebro.addanalyzer(bt.analyzers.PeriodStats, _name='cm')
-    cerebro.addanalyzer(bt.analyzers.DrawDown, _name='dd')
-    cerebro.addanalyzer(bt.analyzers.VWR, _name='vwr')
-    cerebro.addanalyzer(bt.analyzers.SQN, _name='sqn')
-    cerebro.addanalyzer(bt.analyzers.TradeAnalyzer ,_name='ta')
-    cerebro.addanalyzer(bt.analyzers.SharpeRatio ,_name='sr')
+
     print('Starting Portfolio Value: %.2f' % cerebro.broker.getvalue())
 
-    stratdd=cerebro.run()
+    cerebro.run()
 
     print('Final Portfolio Value: %.2f' % cerebro.broker.getvalue())
-    strat0 = stratdd[0]
-    pyfolio = strat0.analyzers.getbyname('pf')
-    returnss, positions, transactions, gross_lev,  = pyfolio.get_pf_items()
+
     final_value=cerebro.broker.getvalue()
-    final_value=round(final_value, 2)
     returns=(final_value-start_value)*100/start_value
     annual_return=returns/totalyear
     returns=round(returns, 2)
@@ -514,141 +488,54 @@ def backtestgolden(ticker, start, end, cash):
     returns=str(returns)
     annual_return=str(annual_return)
     figure = cerebro.plot()[0][0]
-    graph, blank, info=st.columns([2,0.2, 1])
+    graph, blank, info = st.columns([2,0.2,1])
     with graph:
         st.pyplot(figure)
-    with blank: 
+    with blank:
         st.write(' ')
     with info:
         st.header(strategy)
         st.write(' ')
         st.write(' ')
-        trade=stratdd[0].analyzers.ta.get_analysis()
-        tra=''
-        trade=stratdd[0].analyzers.ta.get_analysis()
-                #x=trade[i]
-                #for i in x:
-                #    tra=tra+(i.upper(), ':', x[i])
-                #    st.write(tra)
-        #st.write(trade)
         st.subheader(f"{ticker}'s total returns are {returns}% with a {annual_return}% APY")
-        st.subheader(f'Initial investment: {cash}')
-        st.subheader(f'Final investment value: {final_value}')
-        sr=stratdd[0].analyzers.sr.get_analysis()
-        print(sr)
-        for i in sr:
-            ratio=sr[i]
-        ratio=str(round(ratio, 3))
-        print(ratio)
-        st.subheader(f'Sharpe Ratio: {ratio}')
-        dd=stratdd[0].analyzers.dd.get_analysis()
-        max=dd['max']
-        print(max)
-        #max=max[1]
-        drawdown='Drawdown Stats: \n'
-        for i in max:
-            max[i]=str(round(max[i], 3))
-            drawdown=f"{drawdown} {i} : {max[i]}  |    "
-        print(drawdown)
-        st.subheader(drawdown)
-#        st.subheader('Trade Details')
-#        for i in trade:
-#            if i=='total' or i=='pnl' or i=='streak' or i=='lost' or i=='won':
-#                if i=='pnl':
-#                    pass
-#                    for j in i:
-#                        pass
-#                x=str(trade[i])
-#                for k in "[]()''":
-#                    x=x.replace(k, '')
-#                x=x.replace('AutoOrderedDict', '')
-#                st.write(i,x)
-#    st.write('')
-#    st.subheader(f"{ticker}'s total returns are {returns}% with a {annual_return}% APY")
-    #final_value=round(returns, 2)
-#    st.write(f'Initial investment: {cash}')
-#    st.write(f'Final money: {final_value}')
-#    st.write(stratdd[0].analyzers.sr.get_analysis())
-    #st.write(stats)
     strategy=''
 def backtestbb(ticker, start, end, cash):
-    from bollingerband import BOLLStrat
     global strategy
     cash=int(cash)
     cerebro=bt.Cerebro()
     cerebro.broker.set_cash(cash)
     start_value=cash
     data = bt.feeds.PandasData(dataname=yf.download(ticker, start, end))
-    start=str(start).split("-")
-    end=str(end).split("-")
-    for i in range(len(start)):
-        start[i]=int(start[i])
-    for j in range(len(end)):
-        end[j]=int(end[j])
-    year=end[0]-start[0]
-    month=end[1]-start[1]
-    day=end[2]-start[2]
-    totalyear=year+(month/12)+(day/365)
     matplotlib.use('Agg')
+    plt.show(block=False)
     cerebro.adddata(data)
-
     cerebro.addstrategy(BOLLStrat)
-    cerebro.addanalyzer(bt.analyzers.PyFolio ,_name='pf')
-    cerebro.addanalyzer(bt.analyzers.PeriodStats, _name='cm')
-    cerebro.addanalyzer(bt.analyzers.DrawDown, _name='dd')
-    cerebro.addanalyzer(bt.analyzers.VWR, _name='vwr')
-    cerebro.addanalyzer(bt.analyzers.SQN, _name='sqn')
-    cerebro.addanalyzer(bt.analyzers.TradeAnalyzer ,_name='ta')
-    cerebro.addanalyzer(bt.analyzers.SharpeRatio ,_name='sr')
     print('Starting Portfolio Value: %.2f' % cerebro.broker.getvalue())
-
-    stratdd=cerebro.run()
-
+    cerebro.run()
     print('Final Portfolio Value: %.2f' % cerebro.broker.getvalue())
-    strat0 = stratdd[0]
-    pyfolio = strat0.analyzers.getbyname('pf')
-    returnss, positions, transactions, gross_lev,  = pyfolio.get_pf_items()
-    final_value=cerebro.broker.getvalue()
-    final_value=round(final_value, 2)
-    returns=(final_value-start_value)*100/start_value
-    annual_return=returns/totalyear
-    returns=round(returns, 2)
-    annual_return=round(annual_return,2)
-    returns=str(returns)
-    annual_return=str(annual_return)
-    figure = cerebro.plot()[0][0]
-    graph, blank, info=st.columns([2,0.2, 1])
+    figure = cerebro.plot(style='line')[0][0]
+    graph, blank, info = st.columns([2,0.2,1])
     with graph:
         st.pyplot(figure)
-    with blank: 
+    with blank:
         st.write(' ')
     with info:
         st.header(strategy)
         st.write(' ')
         st.write(' ')
-        trade=stratdd[0].analyzers.ta.get_analysis()
-        tra=''
-        trade=stratdd[0].analyzers.ta.get_analysis()
         st.subheader(f"{ticker}'s total returns are {returns}% with a {annual_return}% APY")
-        st.subheader(f'Initial investment: {cash}')
-        st.subheader(f'Final investment value: {final_value}')
-        sr=stratdd[0].analyzers.sr.get_analysis()
-        print(sr)
-        for i in sr:
-            ratio=sr[i]
-        ratio=str(round(ratio, 3))
-        print(ratio)
-        st.subheader(f'Sharpe Ratio: {ratio}')
-        dd=stratdd[0].analyzers.dd.get_analysis()
-        max=dd['max']
-        print(max)
-        drawdown='Drawdown Stats: \n'
-        for i in max:
-            max[i]=str(round(max[i], 3))
-            drawdown=f"{drawdown} {i} : {max[i]}  |    "
-        print(drawdown)
-        st.subheader(drawdown)
     strategy=''
+page_bg_img = '''
+<style>
+body {
+background-image: url('https://cdn.myportfolio.com/fd40c2a8-1f6f-47d7-8997-48ba5415a69c/6c46ac13-6a18-427a-9baa-01ad3b53ac45_rw_600.png?h=21b14417887f0576feb32fcbfd191788');
+background-size: cover;
+}
+</style>
+<body>
+</body>
+'''
+st.markdown(page_bg_img, unsafe_allow_html=True)
 menu_data = [
     {'icon': "fa fa-desktop", 'label':"Fundamental Indicators"},
     {'icon': "fa fa-signal", 'label':"Chart Analysis"},
@@ -668,15 +555,26 @@ sticky_mode='sticky', #jumpy or not-jumpy, but sticky or pinned
 use_animation=True,
 key='NavBar'
 )
-#<center><img src='https://cdn.myportfolio.com/fd40c2a8-1f6f-47d7-8997-48ba5415a69c/6c46ac13-6a18-427a-9baa-01ad3b53ac45_rw_600.png?h=21b14417887f0576feb32fcbfd191788' alt='logo' class='logo'></img></center> 
+#selected=option_menu(
+#    menu_title=None,
+#    options=[1,2,3],
+#    icons=['stocks', 'laptop', 'plane'],
+#    orientation='horizontal',
+#    styles={
+#            "container": {"padding": "0!important", "background-color": "#fafafa"},
+#            "icon": {"color": "orange", "font-size": "25px"}, 
+#            "nav-link": {"font-size": "25px", "text-align": "left", "margin":"0px", "--hover-color": "#eee"},
+#            "nav-link-selected": {"background-color": "green"},
+#        }
+#)'''
 if dashboard=='Tradelyne':
     logo='''
         <style>
         .logo{
-            width: 55%;
-            margin-top:50px;
-            margin-left:0px;
-            margin-bottom:80px;
+            width: 45%;
+            margin-top:20px;
+            margin-left:-30px;
+            margin-bottom:70px;
         }
         </style>
         <body>
@@ -736,11 +634,11 @@ if dashboard=='Tradelyne':
         width: 400px;
         position: relative;
         border-radius: 5%;
-        margin-left: 0px;
+        margin-left: 10px;
         }
         </style>
         <body>
-        <center><img src="https://cdn.myportfolio.com/fd40c2a8-1f6f-47d7-8997-48ba5415a69c/5422f547-b577-4c88-8d2d-be32f80ddb6e_rw_1200.png?h=d5f92fc4f63b8cace8a88e175fba4c09" alt="House" class='taimg'></img> </center>
+        <img src="https://cdn.myportfolio.com/fd40c2a8-1f6f-47d7-8997-48ba5415a69c/5422f547-b577-4c88-8d2d-be32f80ddb6e_rw_1200.png?h=d5f92fc4f63b8cace8a88e175fba4c09" alt="House" class='taimg'></img>
         </body>'''
     techtxt='''
         <link href='https://fonts.googleapis.com/css?family=Montserrat' rel="stylesheet">
@@ -875,7 +773,10 @@ if dashboard=='Tradelyne':
     with blank2:
         st.write('')
     st.markdown(whatcan, unsafe_allow_html=True)
-    technical,fundamental,backtest=st.columns(3)
+
+    blank1,technical,fundamental,backtest,blank2=st.columns([0.2,1,1,1,0.2])
+    with blank1:
+        st.write(" ")
     with technical:
         st.markdown(tech, unsafe_allow_html=True)
         st.markdown(techtxt, unsafe_allow_html=True)
@@ -891,9 +792,11 @@ if dashboard=='Tradelyne':
         st.markdown(bttxt, unsafe_allow_html=True)
         st.markdown(btsubtxt, unsafe_allow_html=True)
         st.write('____________________')
+    with blank2:
+            st.write(" ")
     st.write(' ')
     st.write(' ')
-    blank1, txt, blank2=st.columns([0.1,2,0.1])
+    blank1, txt, blank2=st.columns([0.5,2,0.5])
     with blank1:
         st.write(' ')
     with txt:
@@ -936,25 +839,23 @@ if dashboard=='Tradelyne':
     with blank2:
         st.write(' ')
 elif dashboard=='Fundamental Indicators':
-    st.write(' ')
-    st.write(' ')
-    st.write(' ')	
-    screen, start, end, stock=st.columns([0.9,0.7,0.7,0.7])	
+    screen, start, end, stock=st.columns([1,0.7,0.7,0.7])
     screener='''
     <link href='https://fonts.googleapis.com/css?family=Montserrat' rel="stylesheet">
     <style>
     .screener {
         font-family:Montserrat;
-        font-size:35px;
+        font-size:40px;
         font-weight:1000;
         font-style: bold;
-        margin-left:0px;
+        float:left;
+        margin-left:80px;
         margin-top: 35px;
     }
     </style>
 
     <body>
-    <center><p1 class='screener'>FUNDAMENTALS</p1></center>
+    <p1 class='screener'>SCREENER</p1>
     </body>
     '''
     with screen:
@@ -1287,6 +1188,43 @@ elif dashboard=='Fundamental Indicators':
                 st.markdown(compdataheader, unsafe_allow_html=True)
                 st.dataframe(tickerDf)
                 info = tickerData.info 
+                #fundInfo = {
+                #        'Enterprise Value (USD)': info['enterpriseValue'],
+                #        'Enterprise To Revenue Ratio': info['enterpriseToRevenue'],
+                #        'Enterprise To Ebitda Ratio': info['enterpriseToEbitda'],
+                #        'Net Income (USD)': info['netIncomeToCommon'],
+                #        'Profit Margin Ratio': info['profitMargins'],
+                #        'Forward PE Ratio': info['forwardPE'],
+                #        'PEG Ratio': info['pegRatio'],
+                #        'Price to Book Ratio': info['priceToBook'],
+                #        'Forward EPS (USD)': info['forwardEps'],
+                #        'Beta ': info['beta'],
+                #        'Book Value (USD)': info['bookValue'],
+                #        'Dividend Rate (%)': info['dividendRate'], 
+                #        'Dividend Yield (%)': info['dividendYield'],
+                #        'Five year Avg Dividend Yield (%)': info['fiveYearAvgDividendYield'],
+                #        'Payout Ratio': info['payoutRatio']
+                #    }
+                
+                #fundDF = pd.DataFrame.from_dict(fundInfo, orient='index')
+                #fundDF = fundDF.rename(columns={0: 'Value'})
+                #st.subheader('Fundamental Info') 
+                #st.table(fundDF)
+                #marketInfo = {
+                #        "Volume": info['volume'],
+                #        "Average Volume": info['averageVolume'],
+                #        "Market Cap": info["marketCap"],
+                #        "Float Shares": info['floatShares'],
+                #        "Regular Market Price (USD)": info['regularMarketPrice'],
+                #        'Bid Size': info['bidSize'],
+                #        'Ask Size': info['askSize'],
+                #        "Share Short": info['sharesShort'],
+                #        'Short Ratio': info['shortRatio'],
+                #        'Share Outstanding': info['sharesOutstanding']
+                #    }
+                
+                #marketDF = pd.DataFrame(data=marketInfo, index=[0])
+                #st.table(marketDF)
                 st.write('___________________________')
                 st.write('')
                 insiderheader='''
@@ -1338,14 +1276,15 @@ elif dashboard=='Fundamental Indicators':
                 st.write(' ')
                 tickers = si.tickers_sp500()
                 recommendations = []
+                print(news)
                 for i in range(len(news)):
                     headline=news['News Headline'][i]
                     link=news['Article Link'][i]
                     st.write(f"{headline}: [More on this article]({link})")
                     newscount=newscount+1
-                    if newscount<13:
+                    if newscount<15:
                         st.write('____________________')
-                    if newscount==13:
+                    if newscount==15:
                         break
             # for extracting data from finviz
             finviz_url = 'https://finviz.com/quote.ashx?t='
@@ -1353,9 +1292,8 @@ elif dashboard=='Fundamental Indicators':
             st.write(' ')
             st.write(' ')
             st.header("Stock News Sentiment Analyzer")
-            if dashboard=='Fundamental Indicators':
-		
-	        
+
+            try:
                 st.subheader("Hourly and Daily Sentiment of {} Stock".format(tickerSymbol))
                 news_table = news_headlines(tickerSymbol)
                 parsed_news_df = parse_news(news_table)
@@ -1364,9 +1302,9 @@ elif dashboard=='Fundamental Indicators':
                 fig_daily = plot_daily_sentiment(parsed_and_scored_news, tickerSymbol) 
                 graph1, graph2=st.columns(2)
                 with graph1:
-                    st.plotly_chart(fig_hourly, use_container_width=True)
+                    st.plotly_chart(fig_hourly)
                 with graph2:
-                    st.plotly_chart(fig_daily, use_container_width=True)
+                    st.plotly_chart(fig_daily)
 
                 description = """
                         The above chart averages the sentiment scores of {} stock hourly and daily.
@@ -1376,7 +1314,9 @@ elif dashboard=='Fundamental Indicators':
                         
                 st.write(description)	 
                 st.table(parsed_and_scored_news)
-                    
+                st.write(get_rating(tickerSymbol))
+            except:
+                st.write("Enter a correct stock ticker, e.g. 'AAPL' above and hit Enter.")	
 if dashboard=='Chart Analysis':
             screen, start, end, stock=st.columns([1.5,0.7,0.7,0.7])
             screener='''
@@ -1431,7 +1371,7 @@ if dashboard=='Chart Analysis':
                     with c:
                         overlap_indicators=st.multiselect('Overlap Indicators', options=['Bollinger Bands','SMA20', 'SMA50', 'SMA200', 'EMA12', 'EMA24', 'EMA50', 'EMA200'], default=['Bollinger Bands'])
                     with d:
-                        momentum_indicators=st.multiselect('Momentum Indicators', options=['RSI', 'MACD', 'Stochastic Indicator', 'Average Directional Index'])
+                        momentum_indicators=st.multiselect('Momentum Indicators', options=['RSI', 'MACD', 'Stochastic Indicator', 'Average Directional Index'], default=['MACD'])
                     with e:
                         volume_indicators=st.multiselect('Volume Indicators', options=['A/D Line', 'On-Balance Volume'])
                     with f:
@@ -1664,10 +1604,10 @@ if dashboard=='Chart Analysis':
             
             st.write('_________________')
             st.pyplot(fig)
+            beta = talib.BETA(df['High'], df['Low'], timeperiod=5)
+            pearsonr = talib.CORREL(df['High'], df['Low'], timeperiod=30)
+            st.write(beta, pearsonr)
 if dashboard=='Backtesting':
-    st.write(' ')
-    st.write(' ')
-    st.write(' ')	 
     backtest, blank, s1,s2,s3,s4, s5 =st.columns([2, 0.5, 0.75, 0.75, 0.75, 0.75, 0.75])
     with backtest:
         backtest_head='''
@@ -1699,30 +1639,27 @@ if dashboard=='Backtesting':
     with blank:
         st.write(' ')
     with s1:
-        ticker=st.text_input("Stock ticker", value="AAPL", key='backT')
+        ticker=st.text_input("Stock ticker", value="AAPL")
     with s2:
-        start=st.date_input("Start date", value=date(2018,1,31), key='backS')
+        start=st.date_input("Start date", value=date(2018,1,31))
     with s3:
-        end=st.date_input("End date", value=date.today(), key='backE')
+        end=st.date_input("End date", value=date.today())
     with s4:
-        cash=st.text_input("Starting cash", value=10000, key='backC')
+        cash=st.text_input("Starting cash", value=10000)
     with s5:
-        strategy=st.selectbox('Choose your strategy', options=['RSI', 'Golden Crossover', 'Bollinger Bands'])
+        strategy=st.selectbox('Choose your strategy', options=['RSI', 'Volatility VIX', 'Golden Crossover', 'Bollinger Bands'])
     st.write(' ')
     st.write(' ')
     st.write(' ')
     while strategy=='RSI':
         backtestrsi(ticker=ticker, start=start, end=end, cash=cash)
     while strategy=='Volatility VIX':
-        volatility()
+        volatility(ticker=ticker, start=start, end=end, cash=cash)
     while strategy=='Golden Crossover':
         backtestgolden(ticker=ticker, start=start, end=end, cash=cash)
     while strategy=='Bollinger Bands':
         backtestbb(ticker=ticker, start=start, end=end, cash=cash)
 if dashboard=='Portfolio Optimizer':
-    st.write(' ')
-    st.write(' ')
-    st.write(' ')	
     #st.set_page_config(page_title = "Bohmian's Stock Portfolio Optimizer", layout = "wide")
     s = Screener()
     tickers_strings = ''
@@ -1763,7 +1700,7 @@ if dashboard=='Portfolio Optimizer':
         return fig
 
 
-    st.header("Max Sharpe Ratio Stock Portfolio Optimizer")
+    st.header("Mean-variance Stock Portfolio Optimizer")
 
     col1, col2, col3 = st.columns(3)
 
@@ -1881,7 +1818,7 @@ if dashboard=='Portfolio Optimizer':
             </body>
             '''
             st.markdown(holdings, unsafe_allow_html=True)
-            st.plotly_chart(fig_pie, use_container_width=True)
+            st.plotly_chart(fig_pie)
         with stats:
             st.subheader('Expected annual return: {}%'.format((expected_annual_return*100).round(2)))
             st.write('___________')
@@ -1900,21 +1837,18 @@ if dashboard=='Portfolio Optimizer':
             st.image(fig_efficient_frontier)
         with col2:
             st.subheader("Correlation between stocks")
-            st.plotly_chart(fig_corr, use_container_width=True) # fig_corr is not a plotly chart
+            st.plotly_chart(fig_corr) # fig_corr is not a plotly chart
         col1,col2=st.columns(2)
         with col1:
             st.subheader('Price of Individual Stocks')
-            st.plotly_chart(fig_price, use_container_width=True)
+            st.plotly_chart(fig_price)
         with col2:
             st.subheader('Cumulative Returns of Stocks Starting with $100')
-            st.plotly_chart(fig_cum_returns, use_container_width=True)	
+            st.plotly_chart(fig_cum_returns)	
     except:
         st.write('Enter correct stock tickers to be included in portfolio separated\
         by commas WITHOUT spaces, e.g. "MA,FB,V,AMZN,JPM,BA"and hit Enter.')
 if dashboard=='Twitter Analysis':
-    st.write(' ')
-    st.write(' ')
-    st.write(' ')
     icon, dashboard, dashboard2=st.columns([1.0,0.7,0.7])
     tweepytxt='''
             <link href='https://fonts.googleapis.com/css?family=Montserrat' rel="stylesheet">
@@ -1955,13 +1889,15 @@ if dashboard=='Twitter Analysis':
     if option == 'Twitter':
         with dashboard2:
             usernames=[]
-            account=st.selectbox(label='Select a twitter account', options=['Traderstewie', 'The_chart_life', 'Tmltrader', 'Benzinga', 'Breakoutstocks', 'Stephanie_link', 'SunriseTrader'])
+            account=st.selectbox(label='Select a twitter account', options=['Traderstewie', 'The_chart_life', 'Tmltrader', 'Benzinga', 'Wallstreetjournal', 'Breakoutstocks', 'Stephanie_link', 'SunriseTrader'])
             usernames.append(account)
         for username in usernames:
+            print(username)
             user = api.get_user(screen_name=username)
             tweets = api.user_timeline(screen_name=username)
             st.header(username)
             st.image(user.profile_image_url)
+            
             for tweet in tweets:
                 if '$' in tweet.text:
                     words = tweet.text.split(' ')
