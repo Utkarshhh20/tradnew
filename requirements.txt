@@ -6,7 +6,7 @@ numpy
 plotly
 pandas_datareader
 yfinance
-matplotlib==3.2.2
+matplotlib==3.2.1
 mplfinance
 nltk
 urllib3
