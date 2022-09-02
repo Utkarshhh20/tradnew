@@ -35,7 +35,7 @@ from yahooquery import Screener
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from bollingerband import BOLLStrat
 from goldencrossover import goldencrossover
-symbol='AAPL'
+tickerSymbol='AAPL'
 newscount=0
 def news_headlines(ticker):
     url = finviz_url + ticker
@@ -45,6 +45,7 @@ def news_headlines(ticker):
     html = bs(response)
     # Find 'news-table' in the Soup and load it into 'news_table'
     news_table = html.find(id='news-table')
+    st.write(news_table)
     return news_table
 	
 # parse news into dataframe
@@ -77,6 +78,10 @@ def parse_news(news_table):
         parsed_news_df['datetime'] = pd.to_datetime(parsed_news_df['date'] + ' ' + parsed_news_df['time'])
         
     return parsed_news_df
+st.subheader("Hourly and Daily Sentiment of {} Stock".format(tickerSymbol))
+news_table = news_headlines(tickerSymbol)
+parsed_news_df = parse_news(news_table)
+#parsed_and_scored_news = score_news(parsed_news_df)
 '''
 def get_news():
     try:
