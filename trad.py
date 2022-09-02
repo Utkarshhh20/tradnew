@@ -41,6 +41,7 @@ def get_news():
     try:
         # Find news table
         news = pd.read_html(str(html), attrs = {'class': 'fullview-news-outer'})[0]
+        st.write(news)
         links = []
         for a in html.find_all('a', class_="tab-link-news"):
             links.append(a['href'])
