@@ -37,6 +37,7 @@ from bollingerband import BOLLStrat
 from goldencrossover import goldencrossover
 tickerSymbol='AAPL'
 newscount=0
+finviz_url = 'https://finviz.com/quote.ashx?t='
 def news_headlines(ticker):
     url = finviz_url + ticker
     req = Request(url=url,headers={'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:20.0) Gecko/20100101 Firefox/20.0'}) 
