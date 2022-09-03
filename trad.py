@@ -45,7 +45,7 @@ def news_headlines(ticker):
     # Read the contents of the file into 'html'
     html = bs(response)
     # Find 'news-table' in the Soup and load it into 'news_table'
-    newstable = html.find(class='fullview-news-outer')
+    newstable = html.find(id='news-table')
     return newstable
 	
 # parse news into dataframe
