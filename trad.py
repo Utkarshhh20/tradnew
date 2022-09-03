@@ -80,7 +80,8 @@ def parse_news(news_table):
     return parsed_news_df
 st.subheader("Hourly and Daily Sentiment of {} Stock".format(tickerSymbol))
 news_table = news_headlines(tickerSymbol)
-st.write(news_table)
+typelab=type(news_table)
+st.write(typelab)
 parsed_news_df = parse_news(news_table)
 #parsed_and_scored_news = score_news(parsed_news_df)
 '''
