@@ -55,7 +55,7 @@ def parse_news(news_table):
     for x in news_table.findAll('tr'):
         # read the text from each tr tag into text
         # get text from a only
-        st.write(x)
+
         # splite text in the td tag into a list 
         text = x.a.get_text()
 
