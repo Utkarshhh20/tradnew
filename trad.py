@@ -58,8 +58,8 @@ def parse_news(news_table):
         st.write(x)
         # splite text in the td tag into a list 
         text = x.a.get_text()
-	#vre
-	date_scrape = x.td.text.split()
+
+        date_scrape = x.td.text.split()
         # if the length of 'date_scrape' is 1, load 'time' as the only element
 
         if len(date_scrape) == 1:
