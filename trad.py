@@ -40,7 +40,7 @@ newscount=0
 finviz_url = 'https://finviz.com/quote.ashx?t='
 def news_headlines(ticker):
     url = finviz_url + ticker
-    req = Request(url=url,headers={'User-Agent': 'Mozilla/5.0'}) 
+    req = Request(url=url,headers={'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.116 Safari/537.36'}) 
     response = urlopen(req)    
     # Read the contents of the file into 'html'
     html = bs(response)
