@@ -616,6 +616,7 @@ def backtestbb(ticker, start, end, cash):
         print(drawdown)
         st.subheader(drawdown)
     strategy=''
+'''
 menu_data = [
     {'icon': "fa fa-desktop", 'label':"Fundamental Indicators"},
     {'icon': "fa fa-signal", 'label':"Chart Analysis"},
@@ -1753,7 +1754,7 @@ if dashboard=='Twitter Analysis':
             st.write(message['created_at'])
             st.subheader(message['body'])
             st.write('_______________________')
-'''
+
 def get_news():
     try:
         # Find news table
@@ -1774,7 +1775,7 @@ def get_news():
 
     except Exception as e:
         return e
-
+'''
 url = ("http://finviz.com/quote.ashx?t=" + symbol.lower())
 req = Request(url, headers={'User-Agent': 'Mozilla/5.0'})
 webpage = urlopen(req).read()
@@ -1791,4 +1792,4 @@ for i in range(len(news)):
                         st.write('____________________')
                     if newscount==15:
                         break
-'''
+
